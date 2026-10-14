@@ -58,7 +58,9 @@ jobs:
       ACESTEP_LM_BACKEND: "pt"
       ACESTEP_LM_DEVICE: "cpu"
       ACESTEP_LM_OFFLOAD_TO_CPU: "true"
-      ACESTEP_INIT_LLM: "true"
+      # Avoid loading the extra 0.6B language model on the 16 GiB CPU runner.
+      # DiT-only mode is supported for inference and reduces RAM pressure.
+      ACESTEP_INIT_LLM: "false"
     steps:
       - name: Checkout project
         uses: actions/checkout@v4
