@@ -1,0 +1,86 @@
+name: CPU Melody Prototype
+
+on:
+  workflow_dispatch:
+    inputs:
+      audio_url:
+        description: "Optional HTTPS URL to a WAV/MP3 melody recording (leave blank for synthetic test)"
+        required: false
+        type: string
+      lyrics:
+        description: "Lyrics to carry into the next singing-synthesis stage"
+        required: false
+        type: string
+        default: ""
+      style:
+        description: "Desired arrangement style"
+        required: false
+        type: string
+        default: "melody-preserving pop arrangement"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpu-melody-prototype-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  analyze-melody:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install audio tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Download optional input recording
+        env:
+          AUDIO_URL: ${{ inputs.audio_url }}
+        run: |
+          mkdir -p output
+          if [ -n "$AUDIO_URL" ]; then
+            case "$AUDIO_URL" in
+              https://*) ;;
+              *) echo "audio_url must begin with https://" >&2; exit 2 ;;
+            esac
+            curl --fail --location --silent --show-error --max-time 120 \
+              --proto '=https' --tlsv1.2 "$AUDIO_URL" -o output/input_audio
+            test -s output/input_audio
+            echo "Downloaded input audio ($(wc -c < output/input_audio) bytes)"
+          else
+            echo "No audio URL supplied; the prototype will create a synthetic test melody."
+          fi
+
+      - name: Run CPU melody analysis
+        env:
+          LYRICS: ${{ inputs.lyrics }}
+          STYLE: ${{ inputs.style }}
+        run: |
+          if [ -s output/input_audio ]; then
+            python src/prototype.py --input-audio output/input_audio --output-dir output --lyrics "$LYRICS" --style "$STYLE"
+          else
+            python src/prototype.py --output-dir output --lyrics "$LYRICS" --style "$STYLE"
+          fi
+
+      - name: Upload analysis artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-music-prototype
+          path: output/
+          if-no-files-found: warn
+          retention-days: 14
