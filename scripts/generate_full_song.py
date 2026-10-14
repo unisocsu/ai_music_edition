@@ -10,6 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
+from pathlib import PurePosixPath
 
 import requests
 
@@ -70,7 +71,10 @@ def main() -> int:
         }
 
         if audio_url:
-            input_path = out / "source_melody"
+            suffix = PurePosixPath(urlparse(audio_url).path).suffix.lower()
+            if suffix not in {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".opus"}:
+                suffix = ".audio"
+            input_path = out / f"source_melody{suffix}"
             with requests.get(audio_url, stream=True, timeout=(30, 180), allow_redirects=True) as response:
                 response.raise_for_status()
                 final_url = response.url
