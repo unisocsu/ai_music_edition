@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import platform
-import resource
+try:
+    import resource
+except ImportError:  # Windows local runs
+    resource = None
 import sys
 import time
 from pathlib import Path
@@ -133,7 +135,10 @@ def main() -> int:
         raise
     report["elapsed_seconds"] = round(time.time() - started, 3)
     try:
-        report["peak_rss_mb"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 if sys.platform != "darwin" else 1024 * 1024), 1)
+        if resource is None:
+            report["peak_rss_mb"] = None
+        else:
+            report["peak_rss_mb"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 if sys.platform != "darwin" else 1024 * 1024), 1)
     except Exception:
         report["peak_rss_mb"] = None
     (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
