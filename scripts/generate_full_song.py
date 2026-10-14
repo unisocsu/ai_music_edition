@@ -124,9 +124,26 @@ def main() -> int:
             if items:
                 item = items[0]
                 status = item.get("status")
-                print(f"Generation status: {status}", flush=True)
+                progress_text = item.get("progress_text")
+                details = item.get("result", "[]")
+                try:
+                    detail_items = json.loads(details) if isinstance(details, str) else details
+                except json.JSONDecodeError:
+                    detail_items = []
+                detail = detail_items[0] if isinstance(detail_items, list) and detail_items and isinstance(detail_items[0], dict) else {}
+                stage = detail.get("stage", "")
+                progress = detail.get("progress")
+                error_text = detail.get("error")
+                status_line = f"Generation status: {status}"
+                if stage:
+                    status_line += f" | stage: {stage}"
+                if progress is not None:
+                    status_line += f" | progress: {progress}"
+                if progress_text:
+                    status_line += f" | {progress_text}"
+                print(status_line, flush=True)
                 if status == 2:
-                    raise RuntimeError(f"ACE-Step generation failed: {item.get('result', item)}")
+                    raise RuntimeError(f"ACE-Step generation failed: {error_text or details}")
                 if status == 1:
                     raw_result = item.get("result", "[]")
                     try:
