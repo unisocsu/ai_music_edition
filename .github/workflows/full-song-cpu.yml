@@ -49,10 +49,16 @@ jobs:
     timeout-minutes: 360
     env:
       HF_HOME: ${{ github.workspace }}/.hf-cache
-      HF_HUB_ENABLE_HF_TRANSFER: "1"
       OMP_NUM_THREADS: "4"
       MKL_NUM_THREADS: "4"
       TOKENIZERS_PARALLELISM: "false"
+      ACESTEP_DEVICE: "cpu"
+      ACESTEP_OFFLOAD_TO_CPU: "true"
+      ACESTEP_OFFLOAD_DIT_TO_CPU: "true"
+      ACESTEP_LM_BACKEND: "pt"
+      ACESTEP_LM_DEVICE: "cpu"
+      ACESTEP_LM_OFFLOAD_TO_CPU: "true"
+      ACESTEP_INIT_LLM: "true"
     steps:
       - name: Checkout project
         uses: actions/checkout@v4
@@ -85,11 +91,13 @@ jobs:
       - name: Start ACE-Step API in CPU mode
         env:
           MODEL_NAME: ${{ inputs.model }}
+          ACESTEP_CONFIG_PATH: ${{ inputs.model }}
+          ACESTEP_LM_MODEL_PATH: acestep-5Hz-lm-0.6B
         run: |
+          mkdir -p output
           cd upstream
-          nohup uv run acestep-api --host 127.0.0.1 --port 8001 --config_path "$MODEL_NAME" --lm_model_path acestep-5Hz-lm-0.6B --offload_to_cpu true > ../output-server.log 2>&1 &
+          nohup uv run acestep-api --host 127.0.0.1 --port 8001 > ../output-server.log 2>&1 &
           echo $! > ../api-server.pid
-          mkdir -p ../output
           for i in $(seq 1 180); do
             if curl --silent --fail http://127.0.0.1:8001/health > /dev/null; then
               echo "ACE-Step API is ready."
