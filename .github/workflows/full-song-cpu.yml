@@ -122,7 +122,30 @@ jobs:
           DURATION: ${{ inputs.duration }}
           MODEL_NAME: ${{ inputs.model }}
         run: |
+          set -Eeuo pipefail
           python -m pip install requests
+
+          # Stream API logs to the live Actions console so they survive runner shutdown.
+          (tail -n 0 -F output-server.log 2>&1 | sed -u 's/^/[ACE-API] /') &
+          LOG_TAIL_PID=$!
+
+          # Record RAM, swap, and top memory consumers while generation is running.
+          (
+            while true; do
+              echo "[DIAGNOSTICS] $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+              free -h || true
+              echo "[DIAGNOSTICS] Top processes by RSS:"
+              ps -eo pid,ppid,comm,%cpu,%mem,rss --sort=-rss | head -n 12 || true
+              sleep 60
+            done
+          ) &
+          MONITOR_PID=$!
+          cleanup() {
+            kill "$LOG_TAIL_PID" "$MONITOR_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT INT TERM
+
+          echo "[DIAGNOSTICS] Starting generator; API log and memory metrics will stream below."
           python scripts/generate_full_song.py --output-dir output
 
       - name: Save server log
