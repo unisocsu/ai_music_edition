@@ -1,0 +1,133 @@
+name: Full Song Generator (CPU)
+
+on:
+  workflow_dispatch:
+    inputs:
+      audio_url:
+        description: "Optional HTTPS URL to your original melody (WAV/MP3). Leave blank for text-only generation."
+        required: false
+        type: string
+      lyrics:
+        description: "Lyrics to sing (Hebrew is accepted as input, but quality is model-dependent)"
+        required: false
+        type: string
+        default: ""
+      style:
+        description: "Genre, mood, instruments and arrangement"
+        required: true
+        type: string
+        default: "Hebrew pop, warm acoustic instruments, clear lead vocal, polished studio arrangement"
+      duration:
+        description: "Target duration in seconds (10–60 recommended for a CPU test)"
+        required: true
+        type: choice
+        options:
+          - "15"
+          - "30"
+          - "45"
+          - "60"
+        default: "30"
+      model:
+        description: "ACE-Step model"
+        required: true
+        type: choice
+        options:
+          - acestep-v15-turbo
+          - acestep-v15-turbo-shift3
+        default: acestep-v15-turbo
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-song-cpu-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      HF_HOME: ${{ github.workspace }}/.hf-cache
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+      TOKENIZERS_PARALLELISM: "false"
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache model files
+        uses: actions/cache@v4
+        with:
+          path: .hf-cache
+          key: acestep-v15-cpu-${{ inputs.model }}-v1
+          restore-keys: |
+            acestep-v15-cpu-${{ inputs.model }}-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg git
+          python -m pip install --upgrade pip uv
+
+      - name: Fetch ACE-Step
+        run: |
+          git clone --depth 1 https://github.com/ace-step/ACE-Step-1.5.git upstream
+          cd upstream
+          uv sync
+
+      - name: Start ACE-Step API in CPU mode
+        env:
+          MODEL_NAME: ${{ inputs.model }}
+        run: |
+          cd upstream
+          nohup uv run acestep-api --host 127.0.0.1 --port 8001 --config_path "$MODEL_NAME" --lm_model_path acestep-5Hz-lm-0.6B --offload_to_cpu true > ../output-server.log 2>&1 &
+          echo $! > ../api-server.pid
+          mkdir -p ../output
+          for i in $(seq 1 180); do
+            if curl --silent --fail http://127.0.0.1:8001/health > /dev/null; then
+              echo "ACE-Step API is ready."
+              exit 0
+            fi
+            if ! kill -0 "$(cat ../api-server.pid)" 2>/dev/null; then
+              cat ../output-server.log
+              echo "ACE-Step API exited before becoming ready." >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          cat ../output-server.log
+          echo "Timed out waiting for model initialization." >&2
+          exit 1
+
+      - name: Generate full song
+        env:
+          AUDIO_URL: ${{ inputs.audio_url }}
+          LYRICS: ${{ inputs.lyrics }}
+          STYLE: ${{ inputs.style }}
+          DURATION: ${{ inputs.duration }}
+          MODEL_NAME: ${{ inputs.model }}
+        run: |
+          python -m pip install requests
+          python scripts/generate_full_song.py --output-dir output
+
+      - name: Save server log
+        if: always()
+        run: |
+          mkdir -p output
+          if [ -f output-server.log ]; then cp output-server.log output/; fi
+
+      - name: Upload generated song and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-music-full-song
+          path: output/
+          if-no-files-found: warn
+          retention-days: 14
